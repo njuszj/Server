@@ -4,5 +4,5 @@ hello:hello.c
 client:client.c
 	gcc -Wall client.c -o client
 server:server.c
-	gcc -Wall server.c -o server
+	gcc -Wall server.c -o server -lsqlite3
 

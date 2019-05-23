@@ -7,15 +7,35 @@
 #include<sys/socket.h>//socket通信所需头文件
 #include<unistd.h>//fork函数所需头文件
 #include<string.h>
+#include<sqlite3.h>
 
 #define CHAT_PORT 1234//用于正常聊天的端口
-int client[100];
-int count=0;
 
-void recv_message(int,int*,int*);
+int count=0;
+char delete_soc_table[64]="drop temp";
+char insert[64]={};
+char select_from[64]="select socket from temp";
+sqlite3 *db;
+
+void recv_message(int);
 void init_chat_room(){
 	int socket_fd, socket_acpt;
 	struct sockaddr_in chataddr;
+	
+	//由于fork函数进程之间连全局变量都不共享，所以用数据库储存信息
+
+	int ret = sqlite3_open("./data.db",&db);//打开数据库文件
+	if(ret != SQLITE_OK){
+	 	printf("打开数据库失败，服务器启动失败\n");
+	 	exit(0);
+	 }
+	ret = sqlite3_exec(db,"delete from temp", NULL, NULL, NULL);//执行数据库命令操作,创建一个表储存套接字
+	if(ret != SQLITE_OK){
+	 	printf("创建套接字库失败，服务器启动失败\n");
+	 	exit(0);
+	}
+
+
 	printf("========聊天室系统服务端程序启动========\n");
 
 	if((socket_fd = socket(AF_INET, SOCK_STREAM, 0))==-1){
@@ -49,13 +69,19 @@ void init_chat_room(){
 		}//等待客户端的连接,注：该函数默认阻塞
 
 		else{
-			if(count<100) 
-				client[count++]=socket_acpt;
-			else {
+			if(count<100){
+				strcpy(insert,"");
+				sprintf(insert,"insert into temp values(%d)",socket_acpt);
+				ret = sqlite3_exec(db,insert, NULL, NULL, NULL);//执行数据库命令操作,向表中插入一个套接字
+				if(ret != SQLITE_OK){
+	 			printf("数据库存储套接字发生错误\n");
+				} 
+			}
+   			else {
 				send(socket_acpt,"抱歉，连接客户已达上限\n",30,0);
 				close(socket_acpt);
 				break;
-			}//将连接存入client数组，如果数组满了就阻止连接
+			}//将连接写入数据库，如果数组满了就阻止连接
 
 			pid_t pid=fork();//一旦有一个客户连接上，就创建一个子进程
 			if(pid<0){
@@ -67,30 +93,38 @@ void init_chat_room(){
 			}//如果是父进程，则继续等待下一个客户端链接
 
 			else	{
-				int* fork_client=client;
-				int *fork_count=&count;//为了实现数据共享，使用指针！
-				recv_message(socket_acpt,fork_client,fork_count);
+				recv_message(socket_acpt);
 				close(socket_acpt);
 			}
 				//如果是子进程，则调用函数接受客户发来的消息
 		}
 	}
-
+	sqlite3_close(db);
 	close(socket_fd);
 }
 
-void recv_message(int acpt,int* fork_client,int *fork_count){
+void recv_message(int acpt){
 //接收客户端发来的信息
 	int BUFFSIZE=4096;
-	int j;
+	int nRow, nCol;
+	char **dbResult;
+	int index;
 	char buff[BUFFSIZE];
 	while(1){
 		int size=recv(acpt, buff, BUFFSIZE, 0);//从客户端接受信息，返回值是字节长度
+		int ret=sqlite3_get_table(db,select_from,&dbResult,&nRow,&nCol,NULL);
+		if(ret != SQLITE_OK)printf("查询失败，可能无法转发信息\n");
+
 	    if(size>0){
-		printf("收到来自%d号用户的消息：%s",acpt,buff);
-		for(j=0; j < *fork_count;j++)
-			send(fork_client[j],buff,size,0);	
-		strcpy(buff,"");
+		printf("收到来自%d号用户的消息：%s\n",acpt,buff);
+		
+		for(index=nCol;index<nRow+nCol;index++){
+			int soc=atoi(dbResult[index]);
+			int val=send(soc,buff,size,0);
+	        printf("分发给%d号用户,返回值:%d\n",soc,val);
+		}	
+		sqlite3_free_table(dbResult);
+		memset(buff,0,sizeof(buff)/sizeof(char));
 		}
 	}
 }

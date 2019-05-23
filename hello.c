@@ -1,27 +1,23 @@
 #include<stdio.h>
-#include<sys/types.h>
-#include<unistd.h>
-int num[2]={1,2};
-int count;
-
-void f(int *a){
-   printf("f:num0=%d\n",a[0]);
-}
+#include<stdlib.h>
+#include<string.h>
+#include<sqlite3.h>
 
 int main(){
-int b=0;
-pid_t pid=fork();
-if(pid==0){
-	int i;
- 	for(i=0;i<100;i++)num[0]=5;
-	printf("b=%d\n",b);
-}
- 
- else{
-    int j;
-	int* fonum=num;
-	for(j=0;j<10;j++) f(fonum);
-    printf("num0:%d\n",num[0]);
-	b=5;
- }
+	sqlite3 *db;
+	char acCmd[128]="insert into client values('jeffrey','123456')";
+	int ret=sqlite3_open("./data.db",&db);
+	if(ret != SQLITE_OK)
+	{
+	    printf("open database fail!\n");
+	    return -1;
+	}
+	ret = sqlite3_exec(db, acCmd, NULL, NULL, NULL);
+	{
+	    if(ret != SQLITE_OK)
+	    {
+		printf("exec fail,ret %d\n", ret);
+		return -1;
+	    }
+	}
 }
