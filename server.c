@@ -1,45 +1,57 @@
-//实现功能：接收每个客户端的消息并分发给所有连接上的程序
+/*实现功能：接收每个客户端的消息并分发给所有连接上的程序
+ */
 #include<stdio.h>
-#include<stdlib.h>//标准库头文件
-#include<errno.h> //抛出错误
-#include<sys/types.h>//pid_t等数据类型所在
-#include<netinet/in.h>
-#include<sys/socket.h>//socket通信所需头文件
-#include<unistd.h>//fork函数所需头文件
+#include<stdlib.h>
 #include<string.h>
-#include<sqlite3.h>//数据库
+#include<errno.h> //抛出错误信息
+#include<sys/types.h>//pid_t等数据类型所在
+#include<netinet/in.h> //网络通信所需头文件
+#include<sys/socket.h>//socket通信所需头文件
+#include<unistd.h>//fork pipe IO函数等所在
+#include<sqlite3.h>//sqlite3数据库
 
-#define CHAT_PORT 1234//用于正常聊天的端口
-
-int count=0;
-int socket_list[100]={0};
-sqlite3 *db;
-
+#define CHAT_PORT 1234//用于开放连接的端口
+#define MAX_LINKED 100//最大连接数
+int g_count=0; //全局变量，表示连接客户的总个数
+int socket_list[100]={0}; //socket描述符储存于此
+static sqlite3 *sql_db;//数据库对象
+int sql_query_usr(char*);
 void recv_message(void* arg);
 void init_chat_room(){
+
+	if(sql_db==NULL)
+		int sql_ret_open = sqlite3_open("./data.db", &sql_db);//打开数据库
+	if(sql_ret_open){
+		fprintf(stderr, "打开数据库失败，%s\n", sqlite3_errmsg(sql_db));
+		sqlite3_close(sql_db);
+		exit(1);
+	}
+
 	int socket_fd, socket_acpt;
-	struct sockaddr_in chataddr;
+	struct sockaddr_in sevr_addr;
+	memset(&sevr_addr, 0, sizeof(sevr_addr));//初始化地址内存
+
 	printf("========聊天室系统服务端程序启动========\n");
 
 	if((socket_fd = socket(AF_INET, SOCK_STREAM, 0))==-1){
-	    printf("创建套接字失败: %s(errno: %d)\n",strerror(errno),errno);
-   	    exit(0);
+	    fprintf(stderr,"创建套接字失败: %s(errno: %d)\n",strerror(errno),errno);
+   	    exit(1);
 	}//创建TCP流套接字，如果失败，抛出错误
 	else printf("创建套接字成功！\n");
-	memset(&chataddr, 0, sizeof(chataddr));//初始化地址内存
-	chataddr.sin_family = AF_INET;//协议类型
-    chataddr.sin_addr.s_addr = htonl(INADDR_ANY);//INADDR_ANY获取本机ip地址
-    chataddr.sin_port = htons(CHAT_PORT);//设置端口为聊天用的端口
 
-	if(bind(socket_fd, (struct sockaddr*)&chataddr, sizeof(chataddr)) == -1){
-    		printf("套接字绑定失败: %s(errno: %d)\n",strerror(errno),errno);
-    		exit(0);
+	sevr_addr.sin_family = AF_INET;//协议族
+    sevr_addr.sin_addr.s_addr = htonl(INADDR_ANY);//INADDR_ANY获取本机ip地址
+    sevr_addr.sin_port = htons(CHAT_PORT);//设置端口为聊天用的端口
+
+	if(bind(socket_fd, (struct sockaddr*)&sevr_addr, sizeof(sevr_addr)) == -1){
+    		fprintf(stderr,"套接字绑定失败: %s(errno: %d)\n",strerror(errno),errno);
+    		exit(1);
 	}//将套接字与地址绑定
 	else printf("绑定套接字成功！\n");
 	
-	if(listen(socket_fd, 100) == -1){
-    	 printf("监听失败: %s(errno: %d)\n",strerror(errno),errno);
-   		 exit(0);
+	if(listen(socket_fd, MAX_LINKED) == -1){
+    	 fprintf(stderr,"监听失败: %s(errno: %d)\n",strerror(errno),errno);
+   		 exit(1);
    	 }//开始监听1234端口，最大连接数设置为100
 	else printf("开始监听1234端口，最大连接数：100\n");
 
@@ -66,6 +78,7 @@ void init_chat_room(){
 			}
 		}
 	close(socket_fd);
+	if(sql_db!=NULL) sqlite3_close(sql_db);
 }
 
 void recv_message(void* arg){
