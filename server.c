@@ -9,18 +9,18 @@
 #include<sys/socket.h>//socket通信所需头文件
 #include<unistd.h>//fork pipe IO函数等所在
 #include<sqlite3.h>//sqlite3数据库
+#include<bits/pthreadtypes.h>//pthread_t所在
 
 #define CHAT_PORT 1234//用于开放连接的端口
 #define MAX_LINKED 100//最大连接数
 int g_count=0; //全局变量，表示连接客户的总个数
 int socket_list[100]={0}; //socket描述符储存于此
-static sqlite3 *sql_db;//数据库对象
-int sql_query_usr(char*);
+static sqlite3 *sql_db=NULL;//数据库对象
 void recv_message(void* arg);
-void init_chat_room(){
 
-	if(sql_db==NULL)
-		int sql_ret_open = sqlite3_open("./data.db", &sql_db);//打开数据库
+void init_chat_room(){
+	int sql_ret_open=1;
+	sql_ret_open = sqlite3_open("./data.db", &sql_db);//打开数据库
 	if(sql_ret_open){
 		fprintf(stderr, "打开数据库失败，%s\n", sqlite3_errmsg(sql_db));
 		sqlite3_close(sql_db);
@@ -62,8 +62,8 @@ void init_chat_room(){
 		}//等待客户端的连接,注：该函数默认阻塞
 
 		else{
-			if(count<100){
-                socket_list[count++]=socket_acpt;
+			if(g_count<100){
+                socket_list[g_count++]=socket_acpt;
 			}
    			else {
 				send(socket_acpt,"抱歉，连接客户已达上限\n",30,0);
