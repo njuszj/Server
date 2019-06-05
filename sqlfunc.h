@@ -8,4 +8,10 @@
 int sql_insert_usr(sqlite3*, char*, char*);//增加一个用户名信息
 char* sql_query_usr(sqlite3*,char*);//查询一个用户名信息
 int sql_is_exist(sqlite3*, char*);//确定数据库中是否存在一条用户名信息
+/*
+create table tablename(
+    columnname1 int NOT NULL,
+    columnname2 varchar(20) PRIMARY Key
+);创建表的操作，直接使用似乎比封装更方便
+*/
 #endif

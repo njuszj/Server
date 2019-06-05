@@ -1,4 +1,6 @@
 /*实现功能：接收每个客户端的消息并分发给所有连接上的程序
+ *基于多线程
+ *使用sqlite3数据库
  */
 #include<stdio.h>
 #include<stdlib.h>
@@ -10,12 +12,17 @@
 #include<unistd.h>//fork pipe IO函数等所在
 #include<sqlite3.h>//sqlite3数据库
 #include<bits/pthreadtypes.h>//pthread_t所在
+#include"sqlfunc.h"
 
 #define CHAT_PORT 1234//用于开放连接的端口
 #define MAX_LINKED 100//最大连接数
 int g_count=0; //全局变量，表示连接客户的总个数
 int socket_list[100]={0}; //socket描述符储存于此
 static sqlite3 *sql_db=NULL;//数据库对象
+static char* recv_name_buff[20];//用于接收客户端发来的用户名
+static char* recv_pswd_buff[20];//用于接收客户端发来的密码
+static char* send_info_buff[100];//用于向客户端发送提示信息
+
 void recv_message(void* arg);
 
 void init_chat_room(){
@@ -55,6 +62,7 @@ void init_chat_room(){
    	 }//开始监听1234端口，最大连接数设置为100
 	else printf("开始监听1234端口，最大连接数：100\n");
 
+	//进入循环，主线程一直等待新客户的链接
 	while(1){
 		if((socket_acpt = accept(socket_fd, (struct sockaddr*)NULL, NULL))==-1){  
         		printf("接受客户端连接时发生错误: %s(errno: %d)",strerror(errno),errno);  
@@ -63,6 +71,23 @@ void init_chat_room(){
 
 		else{
 			if(g_count<100){
+				while(1){
+					memset(recv_name_buff,0,sizeof(recv_name_buff)/sizeof(char));
+					int size=recv(socket_acpt, recv_name_buff, 20, 0);
+					if(size>0){
+						int ret=sql_is_exist(sql_db,recv_name_buff);
+						if(ret==0){
+							memset(send_info_buff,0,sizeof(send_info_buff)/sizeof(char));
+							sprintf(send_info_buff,"该用户名是新用户名，请输入密码进行注册");
+							int val=send(socket_acpt,send_info_buff,sizeof(send_info_buff),0);
+							memset(recv_pswd_buff,0,sizeof(recv_pswd_buff)/sizeof(char));
+							int size_1=recv(socket_acpt, recv_pswd_buff, 20, 0);
+							if(size_1>0){
+								sql_insert_usr(sql_db,recv_name_buff,recv_pswd_buff);
+							}
+						}
+					}
+				}
                 socket_list[g_count++]=socket_acpt;
 			}
    			else {
@@ -91,7 +116,7 @@ void recv_message(void* arg){
 	    if(size>0){
 		printf("收到来自%d号用户的消息：%s\n",acpt,buff);
 		int i;
-		for(i = 0;i < count;i++){
+		for(i = 0;i < g_count;i++){
 			int val=send(socket_list[i],buff,size,0);
 	        printf("分发给%d号用户,返回值:%d\n",socket_list[i],val);
 		}	
