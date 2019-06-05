@@ -45,11 +45,14 @@ void initTCP(){
 
 	printf("===成功与服务器连接===\n");
 	printf("请输入你的名字：");
-	char usrname[50]={};
+	char usrname[20]={};
+	char password[20]={};
 	char send_buff[100]={};
 	scanf("%s",usrname);//储存用户名字
-	sprintf(send_buff,"======欢迎 %s 进入聊天室======\n",usrname);
-	send(socket_fd,send_buff,strlen(send_buff),0);//发送用户名等数据
+	send(socket_fd,usrname,sizeof(usrname),0);//发送用户名等数据
+	scanf("%s",password);
+	//sprintf(send_buff,"======欢迎 %s 进入聊天室======\n",usrname);
+	send(socket_fd,password,sizeof(password),0);//发送用户名等数据
 
 
 	pid_t pid=fork();
