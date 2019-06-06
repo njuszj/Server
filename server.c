@@ -11,6 +11,7 @@
 #include<sys/socket.h>//socket通信所需头文件
 #include<unistd.h>//fork pipe IO函数等所在
 #include<sqlite3.h>//sqlite3数据库
+#include<pthread.h>//含有创建线程
 #include<bits/pthreadtypes.h>//pthread_t所在
 #include"sqlfunc.h"
 
@@ -22,6 +23,7 @@ static sqlite3 *sql_db=NULL;//数据库对象
 static char recv_name_buff[20];//用于接收客户端发来的用户名
 static char recv_pswd_buff[20];//用于接收客户端发来的密码
 static char send_info_buff[100];//用于向客户端发送提示信息
+static int s_login=0;//指示一个用户是否可以登录
 
 void recv_message(void* arg);
 void deal_with_login(int);
@@ -72,15 +74,16 @@ void init_chat_room(){
 
 		else{
 			if(g_count<100){
-				fprintf(stdout,"一个用户准备连接该系统，正在检查账号密码");
+				fprintf(stdout,"一个用户准备连接该系统，正在检查账号密码\n");
+				s_login=0;
 				deal_with_login(socket_acpt);
 			}
    			else {
-				send(socket_acpt,"ISFL",30,0);
+				send(socket_acpt,"too-full-to-enter",17,0);
 				close(socket_acpt);
 				break;
 			}//将连接写入全局变量，如果数组满了就阻止连接
-
+			if(s_login==0) continue;
 			pthread_t tid;
 			int reta = pthread_create(&tid,NULL,(void*)recv_message,(void*)&socket_acpt);//一旦有一个客户连接上，就创建一个新的线程
 			if(reta==0)printf("创建了一个新的线程，pid:%lu\n",tid);
@@ -109,7 +112,7 @@ void recv_message(void* arg){
 		}
 	}
 }
-
+//输入用户名
 void deal_with_login(int socket_acpt){
 //处理登录信息
 	while(1){
@@ -117,28 +120,36 @@ void deal_with_login(int socket_acpt){
 		int size_a = recv(socket_acpt, recv_name_buff, 20, 0);
 		if(size_a > 0){
 			fprintf(stdout,"收到用户名%s\n",recv_name_buff);
-			int ret_a = sql_is_exist(sql_db,recv_name_buff);
+			int ret_a = sql_is_exist(sql_db,recv_name_buff);//检查用户名是否已经存在
+
 			if(ret_a == 0){
-				fprintf(stdout,"用户%s是新用户，启动注册\n",recv_name_buff);
+				//如果用户名不存在
+				printf("用户%s是新用户，启动注册\n",recv_name_buff);
 				memset(send_info_buff,0,sizeof(send_info_buff)/sizeof(char));
-				send(socket_acpt,"STSU",4,0);
+				send(socket_acpt,"enter-the-sign-up",18,0);//发送要求注册的命令
 				while(1){
 					memset(recv_pswd_buff,0,sizeof(recv_pswd_buff)/sizeof(char));
 					int size_b = recv(socket_acpt, recv_pswd_buff, 20, 0);
-					fprintf(stdout,"收到请求的密码:%s\n",recv_pswd_buff);
 					if(size_b > 0){
+						//正常接收字节
+						printf("收到请求的密码:%s\n",recv_pswd_buff);
 						int ret_d = sql_insert_usr(sql_db,recv_name_buff,recv_pswd_buff);
-						if(ret_d==0) fprintf(stdout,"注册成功!\n");
+						if(ret_d==0) {
+							s_login=1;
+							fprintf(stdout,"注册成功!\n");
+							send(socket_acpt,"enter-the-chatting-room-by-signup",34,0);
+						}
 						else  fprintf(stdout,"注册失败!\n");
-						break;
+						break;//跳出小循环
 					}
 				}
-				break;
+				break;//跳出大循环
 			}
 
-			else if(ret_a == 1){
+			else if(ret_a > 0){
+				//如果用户名已存在
 				memset(send_info_buff,0,sizeof(send_info_buff)/sizeof(char));
-				sprintf(send_info_buff,"该用户名已经存在，请输入密码登录");
+				sprintf(send_info_buff,"enter-the-sign-in");
 				int ret_c = send(socket_acpt,send_info_buff,sizeof(send_info_buff),0);
 				while(1){
 					memset(recv_pswd_buff,0,sizeof(recv_pswd_buff)/sizeof(char));
@@ -147,15 +158,32 @@ void deal_with_login(int socket_acpt){
 						char* pswd = sql_query_usr(sql_db,recv_name_buff);
 						if(strcmp(pswd,recv_pswd_buff)==0){
 							socket_list[g_count++]=socket_acpt;	
-							send(socket_acpt,"OKLI",4,0);
+							s_login=1;
+							send(socket_acpt,"enter-the-chatting-room",24,0);
+							break;
 						}
-						break;
+						else {
+							send(socket_acpt,"the-password-is-wrong",22,0);
+							continue;
+						}
+					}
+					else {
+						printf("该客户似乎与服务器断开了连接\n");
+						break;//跳出小循环
 					}
 				}
+				break;//跳出大循环
 			}
-			else printf("查询用户异常\n");
+			else {
+				//查询出错
+				printf("数据库查询出错\n");
+				break;
+			}
 		}	
-		else  fprintf(stdout,"接收错误！\n");
+		else  {
+			printf("该客户似乎与服务器断开了连接\n");
+			break;
+		}
 	}             
 }
 
