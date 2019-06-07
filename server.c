@@ -32,20 +32,21 @@ static char password_wrong[]="1003:the-password-is-wrong";
 static char log_in[]="1004:successfully-enter-the-chatting-room";
 
 
-void create_dwm(int);//创建deal_with_message线程
+void create_dwm(void*);//创建deal_with_message线程
 void deal_with_message(void*);//多线程处理收发信息的函数
 void deal_with_login(void*);//多线程处理登录信息的函数
-void open_sql(sqlite3*);
 
 void init_chat_room(){
-	open_sql(s_sql_db);
 
+	sql_open(s_sql_db);//打开数据库
+	sqlite3_open("./data.db", &s_sql_db);
 	int socket_fd, socket_acpt;
 	struct sockaddr_in sevr_addr;
-	memset(&sevr_addr, 0, sizeof(sevr_addr));//初始化地址内存
+	memset(&sevr_addr, 0, sizeof(sevr_addr)/sizeof(struct sockaddr_in));//初始化地址内存
+
 	printf("========聊天室系统服务端v1.0程序启动========\n");
 	if((socket_fd = socket(AF_INET, SOCK_STREAM, 0))==-1){
-	    fprintf(stderr,"创建套接字失败: %s(errno: %d)\n",strerror(errno),errno);
+	    fprintf(stdout,"创建套接字失败: %s(errno: %d)\n",strerror(errno),errno);
    	    exit(1);
 	}//创建TCP流套接字，如果失败，抛出错误
 	else printf("创建套接字成功...\n");
@@ -55,13 +56,13 @@ void init_chat_room(){
     sevr_addr.sin_port = htons(CHAT_PORT);//设置端口为聊天用的端口
 	
 	if(bind(socket_fd, (struct sockaddr*)&sevr_addr, sizeof(sevr_addr)) == -1){
-    		fprintf(stderr,"套接字绑定失败: %s(errno: %d)\n",strerror(errno),errno);
+    		fprintf(stdout,"套接字绑定失败: %s(errno: %d)\n",strerror(errno),errno);
     		exit(1);
 	}//将套接字与地址绑定
 	else printf("绑定套接字成功...\n");
 
 	if(listen(socket_fd, MAX_LINKED) == -1){
-    	 fprintf(stderr,"监听失败: %s(errno: %d)\n",strerror(errno),errno);
+    	 fprintf(stdout,"监听失败: %s(errno: %d)\n",strerror(errno),errno);
    		 exit(1);
    	 }//开始监听1234端口，最大连接数设置为100
 	else printf("开始监听1234端口，最大连接数：100\n");
@@ -69,8 +70,8 @@ void init_chat_room(){
 	//进入循环，主线程一直等待新客户的链接
 	while(1){
 		if((socket_acpt = accept(socket_fd, (struct sockaddr*)NULL, NULL))==-1){  
-        		printf("接受客户端连接时发生错误: %s(errno: %d)",strerror(errno),errno);  
-        		continue;  
+        		fprintf(stdout,"接受客户端连接时发生错误: %s(errno: %d)",strerror(errno),errno);  
+        		break;  
 		}//等待客户端的连接,注：该函数默认阻塞
 
 		else{
@@ -78,13 +79,13 @@ void init_chat_room(){
 				fprintf(stdout,"一个用户准备连接该系统，正在处理其账号密码\n");
 				pthread_t log_tid;
 				pthread_create(&log_tid,NULL,(void*)deal_with_login,(void*)&socket_acpt);
+				fprintf(stdout,"创建了一个新线程用于处理用户登录...\n");
 			}
    			else {
 				send(socket_acpt,is_full,strlen(is_full),0);
 				close(socket_acpt);
 				break;
 			}//将连接写入全局变量，如果数组满了就阻止连接
-			
 			}
 		}
 	close(socket_fd);
@@ -102,15 +103,15 @@ void deal_with_message(void *arg){
 			printf("收到来自%d号用户的消息：%s\n",acpt,buff);
 			int i;
 			for(i = 0;i < g_count;i++){
-				send(socket_list[i],buff,size,0);
+				int val = send(socket_list[i],buff,size,0);
 	        	printf("分发给%d号用户,返回值:%d\n",socket_list[i],val);
 			}		
 			memset(buff,0,sizeof(buff)/sizeof(char));
 		}
 		else{
 		//如果接收错误
-			fprintf(stdout,"客户%d似乎已经断开了连接",acpt);
-			thread_exit(NULL);
+			fprintf(stdout,"客户%d似乎已经断开了连接,线程结束",acpt);
+			pthread_exit(NULL);
 		}
 	}
 }
@@ -142,8 +143,8 @@ void deal_with_login(void* arg){
 							fprintf(stdout,"注册成功!\n");
 							send(socket_acpt,log_in,sizeof(log_in),0);
 							socket_list[g_count++]=socket_acpt;	
-							create_dwm(socket_acpt);//创建新的线程处理信息
-							thread_exit(NULL);//既然已经成功登陆，就退出这个线程
+							create_dwm(arg);//创建新的线程处理信息
+							pthread_exit(NULL);//既然已经成功登陆，就退出这个线程
 						}
 						else  fprintf(stdout,"注册失败!\n");
 						break;//跳出小循环
@@ -151,7 +152,7 @@ void deal_with_login(void* arg){
 					else{
 					//接收异常
 						fprintf(stdout,"用户%d似乎已断开连接\n",socket_acpt);
-						thread_exit(NULL);
+						pthread_exit(NULL);
 					}
 				}
 				break;//跳出大循环
@@ -170,7 +171,7 @@ void deal_with_login(void* arg){
 						//如果密码是正确的
 							socket_list[g_count++]=socket_acpt;	
 							send(socket_acpt,log_in,sizeof(log_in),0);
-							create_dwm(socket_acpt);//创建新的线程处理信息
+							create_dwm(arg);//创建新的线程处理信息
 							pthread_exit(NULL);
 						}
 						else {
@@ -200,21 +201,10 @@ void deal_with_login(void* arg){
 	}             
 }
 
-void open_sql(sqlite3* db){
-//该函数负责打开数据库
-	int sql_ret_open=1;
-	sql_ret_open = sqlite3_open("./data.db", &db);//打开数据库
-	if(sql_ret_open!=0){
-		fprintf(stderr, "打开数据库失败，%s\n", sqlite3_errmsg(s_sql_db));
-		sqlite3_close(db);
-		exit(1);//只要调用exit，整个程序就结束
-	}
-}
-
-void create_dwm(int socket_acpt){
+void create_dwm(void* arg){
 	pthread_t chat_tid;
-	int ret_a = pthread_create(&chat_tid,NULL,(void*)recv_message,(void*)&socket_acpt);//一旦有一个客户连接上，就创建一个新的线程
-	if(ret_a==0)printf("创建了一个新的线程,pid:%lu，用于处理消息收发...\n",chat_tid);
+	int ret_a = pthread_create(&chat_tid,NULL,(void*)deal_with_message,arg);//一旦有一个客户连接上，就创建一个新的线程
+	if(ret_a == 0)printf("创建了一个新的线程,pid:%lu，用于处理消息收发...\n",chat_tid);
 	else printf("创建新线程失败！\n");
 }
 int main(){
