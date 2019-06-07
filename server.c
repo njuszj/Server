@@ -44,7 +44,7 @@ void init_chat_room(){
 	struct sockaddr_in sevr_addr;
 	memset(&sevr_addr, 0, sizeof(sevr_addr)/sizeof(struct sockaddr_in));//初始化地址内存
 
-	printf("========聊天室系统服务端v1.0程序启动========\n");
+	printf("========聊天室系统服务端v1.1程序启动========\n");
 	if((socket_fd = socket(AF_INET, SOCK_STREAM, 0))==-1){
 	    fprintf(stdout,"创建套接字失败: %s(errno: %d)\n",strerror(errno),errno);
    	    exit(1);
