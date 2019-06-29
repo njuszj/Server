@@ -16,6 +16,8 @@ int main(){
     char pswd[]="123456";
     char hack[]="waht";
     char* query_res=NULL;
+    ret1=sql_chatting_room_is_exist(db,"clie");
+    printf("%d\n",ret1);
     /*
     if((ret1=sql_is_exist(db,hack))==0)
     {
